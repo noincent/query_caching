@@ -1,0 +1,17 @@
+{
+  "templates_path": "data/templates.pkl",
+  "entity_dictionary_path": "data/entity_dictionary.json",
+  "similarity_threshold": 0.4,
+  "max_templates": 1000,
+  "model_name": "all-MiniLM-L6-v2",
+  "chess_module_path": "../chess-plus/interface.py",
+  "use_predefined_templates": true,
+  "use_wtl_templates": true,
+  "wtl_database_config": {
+    "host": "localhost",
+    "port": 3306,
+    "user": "root",
+    "password": "@Ljy20020910",
+    "database": "wtl_employee_tracker"
+  }
+}
