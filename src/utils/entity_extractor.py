@@ -93,7 +93,9 @@ class EntityExtractor:
         # Common entity types and patterns
         # Common entity types and patterns - simplified to avoid tuple matches
         self.date_pattern = r'\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}/\d{2,4}\b|\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2},? \d{2,4}\b'
-        self.time_period_pattern = r'\b(this|last|next|previous) (month|year|week|quarter|day)\b|\bQ[1-4] \d{4}\b|\bQ[1-4]\b|\b(January|February|March|April|May|June|July|August|September|October|November|December) \d{4}\b|\b\d{4}\b'
+        # Updated pattern: Removed standalone \b\d{4}\b to prevent extracting years from dates
+        # Only match years when they're part of specific time period expressions
+        self.time_period_pattern = r'\b(this|last|next|previous) (month|year|week|quarter|day)\b|\bQ[1-4] \d{4}\b|\bQ[1-4]\b|\b(January|February|March|April|May|June|July|August|September|October|November|December) \d{4}\b|\b(year|FY|fiscal year) \d{4}\b'
         
         self.patterns = {
             'date': self.date_pattern,
@@ -352,8 +354,22 @@ class EntityExtractor:
         # Find month + year patterns like "January 2023"
         month_matches = re.findall(r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}\b', query)
         
-        # Find standalone years like "2023"
-        year_matches = re.findall(r'\b\d{4}\b', query)
+        # Find standalone years like "2023" - but exclude those that are part of dates
+        year_matches = []
+        all_year_candidates = re.findall(r'\b\d{4}\b', query)
+        
+        # Filter out years that are part of dates we already found
+        for year in all_year_candidates:
+            # Check if this year is part of any date we found
+            is_part_of_date = False
+            for date in all_dates:
+                if year in date:
+                    is_part_of_date = True
+                    break
+            
+            # Only add if it's NOT part of a date
+            if not is_part_of_date:
+                year_matches.append(year)
         
         # Combine all time period matches
         time_periods = []

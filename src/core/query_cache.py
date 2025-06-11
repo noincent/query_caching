@@ -572,6 +572,9 @@ class QueryCache:
         Returns:
             SQL query with resolved entities
         """
+        # Import date handler for time period resolution
+        from ..utils.date_handler import get_date_range
+        
         sql_template = template['sql_template']
         sql_query = sql_template
         
@@ -581,7 +584,7 @@ class QueryCache:
             entity_type = entity_info['type']
             if entity_type not in type_to_entities:
                 type_to_entities[entity_type] = []
-            type_to_entities[entity_type].append(entity_info)
+            type_to_entities[entity_type].append((placeholder, entity_info))
         
         # Replace placeholders with actual values
         for template_placeholder, template_entity in template['entity_map'].items():
@@ -589,14 +592,46 @@ class QueryCache:
             
             if entity_type in type_to_entities and type_to_entities[entity_type]:
                 # Use the first available entity of this type
-                entity_info = type_to_entities[entity_type][0]
+                placeholder, entity_info = type_to_entities[entity_type][0]
                 type_to_entities[entity_type].pop(0)
                 
-                # Use normalized value for replacement
-                replacement_value = entity_info.get('normalized', entity_info.get('value', ''))
-                sql_query = sql_query.replace(template_placeholder, replacement_value)
+                # Special handling for time_period entities
+                if entity_type == 'time_period':
+                    # Get the time period value
+                    time_period_value = entity_info.get('normalized', entity_info.get('value', ''))
+                    
+                    # Check if SQL template uses _start/_end or -start/-end suffixes
+                    if (f"{template_placeholder}_start" in sql_query or f"{template_placeholder}_end" in sql_query or
+                        f"{template_placeholder}-start" in sql_query or f"{template_placeholder}-end" in sql_query):
+                        # Resolve the time period to actual dates
+                        try:
+                            start_date, end_date = get_date_range(time_period_value)
+                            
+                            # Replace all variations of start/end placeholders
+                            sql_query = sql_query.replace(f"'{template_placeholder}_start'", f"'{start_date}'")
+                            sql_query = sql_query.replace(f"'{template_placeholder}_end'", f"'{end_date}'")
+                            sql_query = sql_query.replace(f"'{template_placeholder}-start'", f"'{start_date}'")
+                            sql_query = sql_query.replace(f"'{template_placeholder}-end'", f"'{end_date}'")
+                            # Also handle without quotes
+                            sql_query = sql_query.replace(f"{template_placeholder}_start", f"'{start_date}'")
+                            sql_query = sql_query.replace(f"{template_placeholder}_end", f"'{end_date}'")
+                            sql_query = sql_query.replace(f"{template_placeholder}-start", f"'{start_date}'")
+                            sql_query = sql_query.replace(f"{template_placeholder}-end", f"'{end_date}'")
+                            
+                            logger.debug(f"Resolved time period {time_period_value} to dates: {start_date} - {end_date}")
+                        except Exception as e:
+                            logger.warning(f"Failed to resolve time period {time_period_value}: {e}")
+                            # Fall back to simple replacement
+                            sql_query = sql_query.replace(template_placeholder, time_period_value)
+                    else:
+                        # Simple replacement for time periods not using _start/_end pattern
+                        sql_query = sql_query.replace(template_placeholder, time_period_value)
+                else:
+                    # Use normalized value for replacement
+                    replacement_value = entity_info.get('normalized', entity_info.get('value', ''))
+                    sql_query = sql_query.replace(template_placeholder, replacement_value)
                 
-                logger.debug(f"Replaced {template_placeholder} with {replacement_value}")
+                logger.debug(f"Replaced {template_placeholder} with resolved value")
         
         return sql_query
     

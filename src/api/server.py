@@ -86,18 +86,56 @@ def process_query():
             sql_template = matching_template['sql_template']
             sql_query = sql_template
             
+            # Import date handler for time period resolution
+            from ..utils.date_handler import get_date_range
+            
             # Replace placeholders in SQL template with entities
             for template_placeholder, template_entity in matching_template['entity_map'].items():
                 entity_type = template_entity['type']
                 for placeholder, entity_info in entity_map.items():
                     if entity_info['type'] == entity_type:
-                        sql_query = sql_query.replace(template_placeholder, entity_info['normalized'])
+                        if entity_type == 'time_period':
+                            # Special handling for time periods
+                            time_period_value = entity_info['normalized']
+                            
+                            # Check if SQL template uses _start/_end or -start/-end suffixes
+                            if (f"{template_placeholder}_start" in sql_query or f"{template_placeholder}_end" in sql_query or
+                                f"{template_placeholder}-start" in sql_query or f"{template_placeholder}-end" in sql_query):
+                                try:
+                                    start_date, end_date = get_date_range(time_period_value)
+                                    # Replace all variations of start/end placeholders
+                                    sql_query = sql_query.replace(f"'{template_placeholder}_start'", f"'{start_date}'")
+                                    sql_query = sql_query.replace(f"'{template_placeholder}_end'", f"'{end_date}'")
+                                    sql_query = sql_query.replace(f"'{template_placeholder}-start'", f"'{start_date}'")
+                                    sql_query = sql_query.replace(f"'{template_placeholder}-end'", f"'{end_date}'")
+                                    # Also handle without quotes
+                                    sql_query = sql_query.replace(f"{template_placeholder}_start", f"'{start_date}'")
+                                    sql_query = sql_query.replace(f"{template_placeholder}_end", f"'{end_date}'")
+                                    sql_query = sql_query.replace(f"{template_placeholder}-start", f"'{start_date}'")
+                                    sql_query = sql_query.replace(f"{template_placeholder}-end", f"'{end_date}'")
+                                except Exception as e:
+                                    logger.warning(f"Failed to resolve time period {time_period_value}: {e}")
+                                    sql_query = sql_query.replace(template_placeholder, time_period_value)
+                            else:
+                                sql_query = sql_query.replace(template_placeholder, time_period_value)
+                        else:
+                            sql_query = sql_query.replace(template_placeholder, entity_info['normalized'])
             
             # Update metrics and template stats
             query_cache.metrics['total_requests'] += 1
             query_cache.metrics['cache_hits'] += 1
-            template_idx = query_cache.template_matcher.templates.index(matching_template)
-            query_cache.template_matcher.update_template_stats(template_idx, success=True)
+            
+            # Find template index by template_query instead of object reference
+            template_idx = None
+            for idx, template in enumerate(query_cache.template_matcher.templates):
+                if template['template_query'] == matching_template['template_query']:
+                    template_idx = idx
+                    break
+            
+            if template_idx is not None:
+                query_cache.template_matcher.update_template_stats(template_idx, success=True)
+            else:
+                logger.warning(f"Could not find matching template in templates list for stats update")
             
             return jsonify({
                 'success': True,
@@ -307,6 +345,66 @@ def save_state():
         }), 200
     except Exception as e:
         logger.error(f"Error saving cache state: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/clear_invalid_cache', methods=['POST'])
+def clear_invalid_cache():
+    """Clear cache entries with unresolved date placeholders."""
+    try:
+        # Get all templates
+        invalid_count = 0
+        valid_templates = []
+        
+        for template in query_cache.template_matcher.templates:
+            sql_template = template.get('sql_template', '')
+            
+            # Check if SQL contains unresolved placeholders
+            has_unresolved = False
+            unresolved_patterns = [
+                r"'\{time_period_\d+\}_start'",
+                r"'\{time_period_\d+\}_end'", 
+                r"'\{time_period_\d+\}-start'",
+                r"'\{time_period_\d+\}-end'",
+                r"'Q[1-4]\s+\d{4}_start'",
+                r"'Q[1-4]\s+\d{4}_end'",
+                r"'Q[1-4]\s+\d{4}-start'",
+                r"'Q[1-4]\s+\d{4}-end'",
+                r"'\d{4}_start'",
+                r"'\d{4}_end'",
+                r"'\d{4}-start'",
+                r"'\d{4}-end'"
+            ]
+            
+            import re
+            for pattern in unresolved_patterns:
+                if re.search(pattern, sql_template):
+                    has_unresolved = True
+                    invalid_count += 1
+                    logger.info(f"Found invalid template with unresolved placeholder: {sql_template[:100]}...")
+                    break
+            
+            if not has_unresolved:
+                valid_templates.append(template)
+        
+        # Replace templates list with only valid ones
+        query_cache.template_matcher.templates = valid_templates
+        
+        # Save the cleaned templates if configured
+        if hasattr(query_cache.template_matcher, 'templates_path') and query_cache.template_matcher.templates_path:
+            query_cache.template_matcher.save_templates()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Cleared {invalid_count} invalid cache entries',
+            'remaining_templates': len(valid_templates)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error clearing invalid cache: {e}", exc_info=True)
         return jsonify({
             'success': False,
             'error': str(e)

@@ -2,7 +2,7 @@
   "templates": [
     {
       "template_query": "How many hours did {employee_0} work on the {project_0} project in {time_period_0}?",
-      "sql_template": "SELECT SUM(hours) FROM work_hour WHERE employee = '{employee_0}' AND project = '{project_0}' AND NOT (start_date > '{time_period_0}-end' OR end_date < '{time_period_0}-start')",
+      "sql_template": "SELECT SUM(T1.hour) FROM work_hour AS T1 INNER JOIN employee AS T2 ON T1.employee_id = T2.uuid INNER JOIN project AS T3 ON T1.project_id = T3.uuid WHERE (T2.name LIKE '%{employee_0}%' OR T2.alias LIKE '%{employee_0}%') AND (T3.name LIKE '%{project_0}%' OR T3.project_reference_id LIKE '%{project_0}%') AND T1.start_date >= '{time_period_0}-start' AND T1.start_date <= '{time_period_0}-end'",
       "entity_map": {
         "{employee_0}": {
           "type": "employee",
@@ -29,7 +29,7 @@
     },
     {
       "template_query": "What projects did {employee_0} work on in {time_period_0}?",
-      "sql_template": "SELECT DISTINCT project FROM work_hour WHERE employee = '{employee_0}' AND NOT (start_date > '{time_period_0}-end' OR end_date < '{time_period_0}-start')",
+      "sql_template": "SELECT DISTINCT T3.name FROM work_hour AS T1 INNER JOIN employee AS T2 ON T1.employee_id = T2.uuid INNER JOIN project AS T3 ON T1.project_id = T3.uuid WHERE (T2.name LIKE '%{employee_0}%' OR T2.alias LIKE '%{employee_0}%') AND T1.start_date >= '{time_period_0}-start' AND T1.start_date <= '{time_period_0}-end'",
       "entity_map": {
         "{employee_0}": {
           "type": "employee",
@@ -51,7 +51,7 @@
     },
     {
       "template_query": "Who worked on the {project_0} project in {time_period_0}?",
-      "sql_template": "SELECT DISTINCT employee FROM work_hour WHERE project = '{project_0}' AND NOT (start_date > '{time_period_0}-end' OR end_date < '{time_period_0}-start')",
+      "sql_template": "SELECT DISTINCT T2.name FROM work_hour AS T1 INNER JOIN employee AS T2 ON T1.employee_id = T2.uuid INNER JOIN project AS T3 ON T1.project_id = T3.uuid WHERE (T3.name LIKE '%{project_0}%' OR T3.project_reference_id LIKE '%{project_0}%') AND T1.start_date >= '{time_period_0}-start' AND T1.start_date <= '{time_period_0}-end'",
       "entity_map": {
         "{project_0}": {
           "type": "project",
@@ -73,7 +73,7 @@
     },
     {
       "template_query": "How many hours did {employee_0} work in {time_period_0}?",
-      "sql_template": "SELECT SUM(hours) FROM work_hour WHERE employee = '{employee_0}' AND NOT (start_date > '{time_period_0}-end' OR end_date < '{time_period_0}-start')",
+      "sql_template": "SELECT SUM(T1.hour) FROM work_hour AS T1 INNER JOIN employee AS T2 ON T1.employee_id = T2.uuid WHERE (T2.name LIKE '%{employee_0}%' OR T2.alias LIKE '%{employee_0}%') AND T1.start_date >= '{time_period_0}-start' AND T1.start_date <= '{time_period_0}-end'",
       "entity_map": {
         "{employee_0}": {
           "type": "employee",
@@ -95,7 +95,7 @@
     },
     {
       "template_query": "How many hours were spent on the {project_0} project in {time_period_0}?",
-      "sql_template": "SELECT SUM(hours) FROM work_hour WHERE project = '{project_0}' AND NOT (start_date > '{time_period_0}-end' OR end_date < '{time_period_0}-start')",
+      "sql_template": "SELECT SUM(T1.hour) FROM work_hour AS T1 INNER JOIN project AS T2 ON T1.project_id = T2.uuid WHERE (T2.name LIKE '%{project_0}%' OR T2.project_reference_id LIKE '%{project_0}%') AND T1.start_date >= '{time_period_0}-start' AND T1.start_date <= '{time_period_0}-end'",
       "entity_map": {
         "{project_0}": {
           "type": "project",
@@ -117,7 +117,7 @@
     },
     {
       "template_query": "Compare the hours worked by {employee_0} and {employee_1} in {time_period_0}",
-      "sql_template": "SELECT employee, SUM(hours) as total_hours FROM work_hour WHERE employee IN ('{employee_0}', '{employee_1}') AND NOT (start_date > '{time_period_0}-end' OR end_date < '{time_period_0}-start') GROUP BY employee",
+      "sql_template": "SELECT T2.name, SUM(T1.hour) as total_hours FROM work_hour AS T1 INNER JOIN employee AS T2 ON T1.employee_id = T2.uuid WHERE ((T2.name LIKE '%{employee_0}%' OR T2.alias LIKE '%{employee_0}%') OR (T2.name LIKE '%{employee_1}%' OR T2.alias LIKE '%{employee_1}%')) AND T1.start_date >= '{time_period_0}-start' AND T1.start_date <= '{time_period_0}-end' GROUP BY T2.name",
       "entity_map": {
         "{employee_0}": {
           "type": "employee",
@@ -144,7 +144,7 @@
     },
     {
       "template_query": "Compare the hours spent on {project_0} and {project_1} in {time_period_0}",
-      "sql_template": "SELECT project, SUM(hours) as total_hours FROM work_hour WHERE project IN ('{project_0}', '{project_1}') AND NOT (start_date > '{time_period_0}-end' OR end_date < '{time_period_0}-start') GROUP BY project",
+      "sql_template": "SELECT T2.name, SUM(T1.hour) as total_hours FROM work_hour AS T1 INNER JOIN project AS T2 ON T1.project_id = T2.uuid WHERE ((T2.name LIKE '%{project_0}%' OR T2.project_reference_id LIKE '%{project_0}%') OR (T2.name LIKE '%{project_1}%' OR T2.project_reference_id LIKE '%{project_1}%')) AND T1.start_date >= '{time_period_0}-start' AND T1.start_date <= '{time_period_0}-end' GROUP BY T2.name",
       "entity_map": {
         "{project_0}": {
           "type": "project",
@@ -171,7 +171,7 @@
     },
     {
       "template_query": "Which projects had the most hours in {time_period_0}?",
-      "sql_template": "SELECT project, SUM(hours) as total_hours FROM work_hour WHERE NOT (start_date > '{time_period_0}-end' OR end_date < '{time_period_0}-start') GROUP BY project ORDER BY total_hours DESC LIMIT 5",
+      "sql_template": "SELECT T2.name, SUM(T1.hour) as total_hours FROM work_hour AS T1 INNER JOIN project AS T2 ON T1.project_id = T2.uuid WHERE T1.start_date >= '{time_period_0}-start' AND T1.start_date <= '{time_period_0}-end' GROUP BY T2.name ORDER BY total_hours DESC LIMIT 5",
       "entity_map": {
         "{time_period_0}": {
           "type": "time_period",
@@ -188,7 +188,7 @@
     },
     {
       "template_query": "Which employees worked the most hours in {time_period_0}?",
-      "sql_template": "SELECT employee, SUM(hours) as total_hours FROM work_hour WHERE NOT (start_date > '{time_period_0}-end' OR end_date < '{time_period_0}-start') GROUP BY employee ORDER BY total_hours DESC LIMIT 5",
+      "sql_template": "SELECT T2.name, SUM(T1.hour) as total_hours FROM work_hour AS T1 INNER JOIN employee AS T2 ON T1.employee_id = T2.uuid WHERE T1.start_date >= '{time_period_0}-start' AND T1.start_date <= '{time_period_0}-end' GROUP BY T2.name ORDER BY total_hours DESC LIMIT 5",
       "entity_map": {
         "{time_period_0}": {
           "type": "time_period",
@@ -205,7 +205,7 @@
     },
     {
       "template_query": "List all hours for {employee_0} by project in {time_period_0}",
-      "sql_template": "SELECT project, SUM(hours) as hours FROM work_hour WHERE employee = '{employee_0}' AND NOT (start_date > '{time_period_0}-end' OR end_date < '{time_period_0}-start') GROUP BY project ORDER BY hours DESC",
+      "sql_template": "SELECT T3.name, SUM(T1.hour) as hours FROM work_hour AS T1 INNER JOIN employee AS T2 ON T1.employee_id = T2.uuid INNER JOIN project AS T3 ON T1.project_id = T3.uuid WHERE (T2.name LIKE '%{employee_0}%' OR T2.alias LIKE '%{employee_0}%') AND T1.start_date >= '{time_period_0}-start' AND T1.start_date <= '{time_period_0}-end' GROUP BY T3.name ORDER BY hours DESC",
       "entity_map": {
         "{employee_0}": {
           "type": "employee",
@@ -227,7 +227,7 @@
     },
     {
       "template_query": "How many hours did the {department_0} department work in {time_period_0}?",
-      "sql_template": "SELECT COALESCE(SUM(w.hour), 0) AS total_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE e.department = '{department_0}' AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start')",
+      "sql_template": "SELECT COALESCE(SUM(w.hour), 0) AS total_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE (e.department LIKE '%{department_0}%' OR e.subdepartment LIKE '%{department_0}%') AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end'",
       "entity_map": {
         "{department_0}": {
           "type": "department",
@@ -249,7 +249,7 @@
     },
     {
       "template_query": "How many hours were spent on {work_type_0} tasks in {time_period_0}?",
-      "sql_template": "SELECT COALESCE(SUM(w.hour), 0) AS total_hours FROM work_hour w WHERE w.task_description LIKE '%{work_type_0}%' AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start')",
+      "sql_template": "SELECT COALESCE(SUM(w.hour), 0) AS total_hours FROM work_hour w WHERE w.task_description LIKE '%{work_type_0}%' AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end'",
       "entity_map": {
         "{work_type_0}": {
           "type": "work_type",
@@ -271,7 +271,7 @@
     },
     {
       "template_query": "Compare hours between {department_0} and {department_1} departments in {time_period_0}",
-      "sql_template": "SELECT e.department, COALESCE(SUM(w.hour), 0) as total_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE e.department IN ('{department_0}', '{department_1}') AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start') GROUP BY e.department",
+      "sql_template": "SELECT e.department, COALESCE(SUM(w.hour), 0) as total_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE ((e.department LIKE '%{department_0}%' OR e.subdepartment LIKE '%{department_0}%') OR (e.department LIKE '%{department_1}%' OR e.subdepartment LIKE '%{department_1}%')) AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end' GROUP BY e.department",
       "entity_map": {
         "{department_0}": {
           "type": "department",
@@ -298,7 +298,7 @@
     },
     {
       "template_query": "How many hours did {employee_0} spend on {work_type_0} tasks in {time_period_0}?",
-      "sql_template": "SELECT COALESCE(SUM(w.hour), 0) AS total_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE e.name = '{employee_0}' AND w.task_description LIKE '%{work_type_0}%' AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start')",
+      "sql_template": "SELECT COALESCE(SUM(w.hour), 0) AS total_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE (e.name LIKE '%{employee_0}%' OR e.alias LIKE '%{employee_0}%') AND w.task_description LIKE '%{work_type_0}%' AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end'",
       "entity_map": {
         "{employee_0}": {
           "type": "employee",
@@ -325,7 +325,7 @@
     },
     {
       "template_query": "Who worked the most hours in the {department_0} department during {time_period_0}?",
-      "sql_template": "SELECT e.name as employee, COALESCE(SUM(w.hour), 0) as total_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE e.department = '{department_0}' AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start') GROUP BY e.name ORDER BY total_hours DESC LIMIT 5",
+      "sql_template": "SELECT e.name as employee, COALESCE(SUM(w.hour), 0) as total_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE (e.department LIKE '%{department_0}%' OR e.subdepartment LIKE '%{department_0}%') AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end' GROUP BY e.name ORDER BY total_hours DESC LIMIT 5",
       "entity_map": {
         "{department_0}": {
           "type": "department",
@@ -347,7 +347,7 @@
     },
     {
       "template_query": "What types of tasks did the {department_0} department work on in {time_period_0}?",
-      "sql_template": "SELECT w.task_description, COALESCE(SUM(w.hour), 0) as hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE e.department = '{department_0}' AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start') GROUP BY w.task_description ORDER BY hours DESC",
+      "sql_template": "SELECT w.task_description, COALESCE(SUM(w.hour), 0) as hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE (e.department LIKE '%{department_0}%' OR e.subdepartment LIKE '%{department_0}%') AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end' GROUP BY w.task_description ORDER BY hours DESC",
       "entity_map": {
         "{department_0}": {
           "type": "department",
@@ -369,7 +369,7 @@
     },
     {
       "template_query": "What projects did the {department_0} department work on in {time_period_0}?",
-      "sql_template": "SELECT p.name as project, COALESCE(SUM(w.hour), 0) as hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid JOIN project p ON w.project_id = p.uuid WHERE e.department = '{department_0}' AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start') GROUP BY p.name ORDER BY hours DESC",
+      "sql_template": "SELECT p.name as project, COALESCE(SUM(w.hour), 0) as hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid JOIN project p ON w.project_id = p.uuid WHERE (e.department LIKE '%{department_0}%' OR e.subdepartment LIKE '%{department_0}%') AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end' GROUP BY p.name ORDER BY hours DESC",
       "entity_map": {
         "{department_0}": {
           "type": "department",
@@ -391,7 +391,7 @@
     },
     {
       "template_query": "How were hours distributed across departments for the {project_0} project in {time_period_0}?",
-      "sql_template": "SELECT e.department, COALESCE(SUM(w.hour), 0) as hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid JOIN project p ON w.project_id = p.uuid WHERE p.name = '{project_0}' AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start') GROUP BY e.department ORDER BY hours DESC",
+      "sql_template": "SELECT e.department, COALESCE(SUM(w.hour), 0) as hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid JOIN project p ON w.project_id = p.uuid WHERE (p.name LIKE '%{project_0}%' OR p.project_reference_id LIKE '%{project_0}%') AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end' GROUP BY e.department ORDER BY hours DESC",
       "entity_map": {
         "{project_0}": {
           "type": "project",
@@ -413,7 +413,7 @@
     },
     {
       "template_query": "What types of tasks were done on the {project_0} project in {time_period_0}?",
-      "sql_template": "SELECT w.task_description, COALESCE(SUM(w.hour), 0) as hours FROM work_hour w JOIN project p ON w.project_id = p.uuid WHERE p.name = '{project_0}' AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start') GROUP BY w.task_description ORDER BY hours DESC",
+      "sql_template": "SELECT w.task_description, COALESCE(SUM(w.hour), 0) as hours FROM work_hour w JOIN project p ON w.project_id = p.uuid WHERE (p.name LIKE '%{project_0}%' OR p.project_reference_id LIKE '%{project_0}%') AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end' GROUP BY w.task_description ORDER BY hours DESC",
       "entity_map": {
         "{project_0}": {
           "type": "project",
@@ -435,7 +435,7 @@
     },
     {
       "template_query": "Compare hours worked by the {department_0} department between {time_period_0} and {time_period_1}",
-      "sql_template": "SELECT '{time_period_0}' as period, COALESCE(SUM(w.hour), 0) as total_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE e.department = '{department_0}' AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start') UNION SELECT '{time_period_1}' as period, COALESCE(SUM(w.hour), 0) as total_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE e.department = '{department_0}' AND NOT (w.start_date > '{time_period_1}-end' OR w.end_date < '{time_period_1}-start')",
+      "sql_template": "SELECT '{time_period_0}' as period, COALESCE(SUM(w.hour), 0) as total_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE (e.department LIKE '%{department_0}%' OR e.subdepartment LIKE '%{department_0}%') AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end' UNION ALL SELECT '{time_period_1}' as period, COALESCE(SUM(w.hour), 0) as total_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE (e.department LIKE '%{department_0}%' OR e.subdepartment LIKE '%{department_0}%') AND w.start_date >= '{time_period_1}-start' AND w.start_date <= '{time_period_1}-end'",
       "entity_map": {
         "{department_0}": {
           "type": "department",
@@ -462,7 +462,7 @@
     },
     {
       "template_query": "What percentage of {department_0} department hours did {employee_0} contribute in {time_period_0}?",
-      "sql_template": "SELECT (COALESCE(emp.emp_hours, 0) / NULLIF(COALESCE(dept.dept_hours, 0), 0)) * 100 as percentage FROM (SELECT COALESCE(SUM(w.hour), 0) as emp_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE e.department = '{department_0}' AND e.name = '{employee_0}' AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start')) as emp, (SELECT COALESCE(SUM(w.hour), 0) as dept_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE e.department = '{department_0}' AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start')) as dept",
+      "sql_template": "SELECT (COALESCE(emp.emp_hours, 0) / NULLIF(COALESCE(dept.dept_hours, 0), 0)) * 100 as percentage FROM (SELECT COALESCE(SUM(w.hour), 0) as emp_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE (e.department LIKE '%{department_0}%' OR e.subdepartment LIKE '%{department_0}%') AND (e.name LIKE '%{employee_0}%' OR e.alias LIKE '%{employee_0}%') AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end') as emp, (SELECT COALESCE(SUM(w.hour), 0) as dept_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE (e.department LIKE '%{department_0}%' OR e.subdepartment LIKE '%{department_0}%') AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end') as dept",
       "entity_map": {
         "{department_0}": {
           "type": "department",
@@ -489,7 +489,7 @@
     },
     {
       "template_query": "What percentage of {department_0} department hours were spent on the {project_0} project in {time_period_0}?",
-      "sql_template": "SELECT (COALESCE(proj.proj_hours, 0) / NULLIF(COALESCE(dept.dept_hours, 0), 0)) * 100 as percentage FROM (SELECT COALESCE(SUM(w.hour), 0) as proj_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid JOIN project p ON w.project_id = p.uuid WHERE e.department = '{department_0}' AND p.name = '{project_0}' AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start')) as proj, (SELECT COALESCE(SUM(w.hour), 0) as dept_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE e.department = '{department_0}' AND NOT (w.start_date > '{time_period_0}-end' OR w.end_date < '{time_period_0}-start')) as dept",
+      "sql_template": "SELECT (COALESCE(proj.proj_hours, 0) / NULLIF(COALESCE(dept.dept_hours, 0), 0)) * 100 as percentage FROM (SELECT COALESCE(SUM(w.hour), 0) as proj_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid JOIN project p ON w.project_id = p.uuid WHERE (e.department LIKE '%{department_0}%' OR e.subdepartment LIKE '%{department_0}%') AND (p.name LIKE '%{project_0}%' OR p.project_reference_id LIKE '%{project_0}%') AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end') as proj, (SELECT COALESCE(SUM(w.hour), 0) as dept_hours FROM work_hour w JOIN employee e ON w.employee_id = e.uuid WHERE (e.department LIKE '%{department_0}%' OR e.subdepartment LIKE '%{department_0}%') AND w.start_date >= '{time_period_0}-start' AND w.start_date <= '{time_period_0}-end') as dept",
       "entity_map": {
         "{department_0}": {
           "type": "department",
