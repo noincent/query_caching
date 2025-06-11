@@ -9,6 +9,7 @@ import re
 from typing import Dict, List, Tuple, Optional, Set, Any
 import logging
 import datetime
+from datetime import timedelta
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -104,6 +105,159 @@ class EntityExtractor:
             'employee': r'\b(Bob Johnson|Jane Doe|John Smith)\b',  # Added for demo purposes
             'project': r'\b(Mobile App|Website Redesign|Database Migration)\b'  # Added for demo purposes
         }
+    
+    def validate_entity(self, entity: str, entity_type: str) -> bool:
+        """Validate extracted entity before processing."""
+        # Basic validation
+        if not entity or entity.isspace():
+            return False
+        
+        # Remove leading/trailing whitespace
+        entity = entity.strip()
+        
+        # Type-specific validation
+        if entity_type == 'date':
+            # Ensure we have a meaningful date (not just "Jan" or "15")
+            if len(entity) < 6:  # Minimum: "Jan 15"
+                return False
+            # Check if it contains at least a month and day/year
+            date_pattern = r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})|(\w{3,9}\s+\d{1,2},?\s*\d{2,4})|(\d{4}[-/]\d{1,2}[-/]\d{1,2})'
+            return bool(re.search(date_pattern, entity))
+        
+        elif entity_type == 'time_period':
+            # Ensure we have a complete time period
+            if len(entity) < 2:
+                return False
+            # Must contain either quarter indicator or month/year
+            time_indicators = ['Q1', 'Q2', 'Q3', 'Q4', 'quarter', 'month', 'year', '20']
+            return any(indicator in entity for indicator in time_indicators)
+        
+        elif entity_type in ['employee', 'project', 'department']:
+            # Ensure minimum length for names
+            return len(entity) >= 2
+        
+        return True
+    
+    def extract_date_entities(self, text: str) -> List[str]:
+        """Extract date entities with improved accuracy."""
+        dates = []
+        
+        # Comprehensive date patterns
+        date_patterns = [
+            # ISO format: 2023-01-15
+            r'\b\d{4}-\d{1,2}-\d{1,2}\b',
+            # US format: 01/15/2023 or 1/15/23
+            r'\b\d{1,2}/\d{1,2}/\d{2,4}\b',
+            # Full month: January 15, 2023
+            r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s*\d{4}\b',
+            # Abbreviated month: Jan 15, 2023
+            r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s*\d{4}\b',
+            # European format: 15 January 2023
+            r'\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}\b',
+            # Month Year: January 2023
+            r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}\b',
+            # Year only: 2023
+            r'\b20\d{2}\b'
+        ]
+        
+        for pattern in date_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                date = match.group()
+                if self.validate_entity(date, 'date'):
+                    dates.append(date)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_dates = []
+        for date in dates:
+            if date.lower() not in seen:
+                seen.add(date.lower())
+                unique_dates.append(date)
+        
+        return unique_dates
+    
+    def resolve_entity_references(self, text: str, entities: Dict[str, List[str]], context: Dict[str, Any] = None) -> Dict[str, List[str]]:
+        """Resolve pronouns and references to entities using context."""
+        if not context:
+            return entities
+        
+        # Handle pronouns and references
+        pronoun_patterns = {
+            'employee': [r'\b(he|she|they|them|his|her|their)\b', r'\bthe same (?:person|employee)\b'],
+            'project': [r'\b(it|this|that|the same project)\b'],
+            'department': [r'\b(this department|that department|the same department)\b']
+        }
+        
+        recent_entities = context.get('recent_entities', {})
+        
+        for entity_type, patterns in pronoun_patterns.items():
+            if entity_type in recent_entities and recent_entities[entity_type]:
+                for pattern in patterns:
+                    if re.search(pattern, text, re.IGNORECASE):
+                        # Add the most recent entity of this type
+                        most_recent = recent_entities[entity_type][0]
+                        if most_recent not in entities.get(entity_type, []):
+                            if entity_type not in entities:
+                                entities[entity_type] = []
+                            entities[entity_type].append(most_recent)
+        
+        return entities
+    
+    def normalize_time_period(self, period: str) -> str:
+        """Enhanced time period normalization with better accuracy."""
+        if not period:
+            return period
+        
+        period_lower = period.lower().strip()
+        current_year = datetime.datetime.now().year
+        current_month = datetime.datetime.now().month
+        current_quarter = (current_month - 1) // 3 + 1
+        
+        # Enhanced quarter patterns
+        quarter_patterns = [
+    (r'q(\d)\s*(\d{4})', lambda m: f"Q{m.group(1)} {m.group(2)}"),
+    (r'(\d{4})\s*q(\d)', lambda m: f"Q{m.group(2)} {m.group(1)}"),
+    (r'quarter\s*(\d)\s*(?:of\s*)?(\d{4})', lambda m: f"Q{m.group(1)} {m.group(2)}"),
+    (r'(\d{4})\s*quarter\s*(\d)', lambda m: f"Q{m.group(2)} {m.group(1)}"),
+    (r'(first|second|third|fourth)\s*quarter\s*(?:of\s*)?(\d{4})',
+     lambda m: f"Q{'first second third fourth'.split().index(m.group(1)) + 1} {m.group(2)}"),
+]
+
+        
+        # Try each pattern
+        for pattern, formatter in quarter_patterns:
+            match = re.search(pattern, period_lower)
+            if match:
+                return formatter(match)
+        
+        # Relative time handling
+        relative_patterns = {
+            'last quarter': f"Q{current_quarter - 1 if current_quarter > 1 else 4} {current_year if current_quarter > 1 else current_year - 1}",
+            'this quarter': f"Q{current_quarter} {current_year}",
+            'next quarter': f"Q{current_quarter + 1 if current_quarter < 4 else 1} {current_year if current_quarter < 4 else current_year + 1}",
+            'last year': str(current_year - 1),
+            'this year': str(current_year),
+            'next year': str(current_year + 1),
+            'last month': (datetime.datetime.now() - timedelta(days=30)).strftime('%B %Y'),
+            'this month': datetime.datetime.now().strftime('%B %Y'),
+            'next month': (datetime.datetime.now() + timedelta(days=30)).strftime('%B %Y')
+        }
+        
+        for pattern, replacement in relative_patterns.items():
+            if pattern in period_lower:
+                return replacement
+        
+        # Month-year patterns
+        month_year_pattern = r'(\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b)\s*(\d{4})'
+        match = re.search(month_year_pattern, period_lower)
+        if match:
+            month = match.group(1).capitalize()
+            year = match.group(2)
+            return f"{month} {year}"
+        
+        # If no pattern matches, return cleaned version
+        return period.strip()
     
     def extract_entities(self, query: str) -> Dict[str, List[str]]:
         """
@@ -316,6 +470,13 @@ class EntityExtractor:
                 else:
                     entities[entity_type] = found
         
+        # Validate entities before returning
+        for entity_type, entity_list in entities.items():
+            entities[entity_type] = [
+                entity for entity in entity_list 
+                if self.validate_entity(entity, entity_type)
+            ]
+        
         # Debug log
         logger.debug(f"Extracted entities: {entities}")
         
@@ -350,28 +511,7 @@ class EntityExtractor:
                     continue
         
         elif entity_type == 'time_period':
-            # Normalize quarter notations - enhanced for weekly reports compatibility
-            quarter_match = re.match(r'Q([1-4])\s*(\d{4})?', entity)
-            month_match = re.match(r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})', entity)
-            
-            if quarter_match:
-                quarter = quarter_match.group(1)
-                # If year is missing, use current year
-                year = quarter_match.group(2) if quarter_match.group(2) else str(datetime.datetime.now().year)
-                # Adding consistent spacing for better parsing
-                return f"Q{quarter} {year.strip()}"
-            elif month_match:
-                month = month_match.group(1)
-                year = month_match.group(2)
-                return f"{month} {year}"
-            elif entity.lower() in ['this month', 'last month', 'next month', 
-                                   'this year', 'last year', 'next year',
-                                   'this week', 'last week', 'next week',
-                                   'this quarter', 'last quarter', 'next quarter']:
-                return entity
-            # Try to parse standalone years
-            elif re.match(r'^\d{4}$', entity):
-                return entity
+            return self.normalize_time_period(entity)
         
         elif entity_type == 'number':
             # Remove commas and normalize decimal format

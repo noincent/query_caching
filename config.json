@@ -1,7 +1,12 @@
 {
   "templates_path": "data/templates.pkl",
   "entity_dictionary_path": "data/entity_dictionary.json",
-  "similarity_threshold": 0.4,
+  "similarity_threshold": 0.65,
+  "similarity_thresholds": {
+    "sentence_transformer": 0.75,
+    "tfidf": 0.65,
+    "keyword": 0.55
+  },
   "max_templates": 1000,
   "model_name": "all-MiniLM-L6-v2",
   "chess_module_path": "../chess-plus/interface.py",

@@ -8,6 +8,7 @@ from a template store based on semantic similarity with CPU-only fallback suppor
 import os
 import json
 import pickle
+import time
 from typing import Dict, List, Any, Tuple, Optional
 import numpy as np
 import logging
@@ -62,7 +63,7 @@ class TemplateMatcher:
     Class for matching query templates based on semantic similarity.
     """
     
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", templates_path: Optional[str] = None, force_cpu: bool = True):
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", templates_path: Optional[str] = None, force_cpu: bool = True, similarity_thresholds: Dict[str, float] = None):
         """
         Initialize the template matcher with fallback support for various similarity methods.
         
@@ -70,9 +71,15 @@ class TemplateMatcher:
             model_name: Name of the sentence transformer model to use
             templates_path: Path to template store file (JSON or pickle)
             force_cpu: Whether to force CPU-only mode (default True)
+            similarity_thresholds: Method-specific similarity thresholds
         """
         self.model = None
         self.similarity_method = "keyword"  # Default fallback
+        self.similarity_thresholds = similarity_thresholds or {
+            'sentence_transformer': 0.75,
+            'tfidf': 0.65,
+            'keyword': 0.55
+        }
         
         if force_cpu:
             # Set environment variables to force CPU usage
@@ -420,6 +427,55 @@ class TemplateMatcher:
         )
         
         return final_score
+    
+    def classify_query_intent(self, query: str) -> str:
+        """Classify the intent of a query for better matching."""
+        query_lower = query.lower()
+        
+        # Define intent patterns
+        intent_patterns = {
+            'aggregation': ['how many', 'total', 'sum', 'count', 'average', 'mean'],
+            'listing': ['list', 'show', 'display', 'what are', 'which'],
+            'comparison': ['compare', 'versus', 'vs', 'difference', 'between'],
+            'ranking': ['top', 'best', 'worst', 'highest', 'lowest', 'most', 'least'],
+            'trend': ['trend', 'over time', 'change', 'growth', 'decline'],
+            'detail': ['details about', 'information about', 'tell me about']
+        }
+        
+        for intent, patterns in intent_patterns.items():
+            if any(pattern in query_lower for pattern in patterns):
+                return intent
+        
+        return 'general'
+    
+    def calculate_template_quality(self, template: Dict) -> float:
+        """Calculate quality score for template ranking."""
+        # Base quality from success rate
+        success_rate = template.get('success_rate', 0.5)
+        
+        # Usage factor (logarithmic to prevent over-weighting popular templates)
+        usage_count = template.get('usage_count', 0)
+        usage_factor = min(np.log1p(usage_count) / 10, 1.0)
+        
+        # Recency factor (boost recently used templates)
+        last_used = template.get('last_used_timestamp', 0)
+        current_time = time.time()
+        days_since_use = (current_time - last_used) / (24 * 3600)
+        recency_factor = np.exp(-days_since_use / 30)  # Decay over 30 days
+        
+        # Entity coverage (templates with more entity types are more flexible)
+        entity_types = len(set(e['type'] for e in template.get('entity_map', {}).values()))
+        coverage_factor = min(entity_types / 5, 1.0)
+        
+        # Weighted quality score
+        quality = (
+            0.4 * success_rate +
+            0.2 * usage_factor +
+            0.2 * recency_factor +
+            0.2 * coverage_factor
+        )
+        
+        return quality
 
     def find_matching_template(self, query: str, similarity_threshold: float = 0.6) -> Optional[Dict[str, Any]]:
         """
@@ -427,7 +483,7 @@ class TemplateMatcher:
         
         Args:
             query: Natural language query to match
-            similarity_threshold: Minimum similarity score to consider a match
+            similarity_threshold: Minimum similarity score to consider a match (fallback threshold)
             
         Returns:
             Best matching template or None if no match found
@@ -439,22 +495,22 @@ class TemplateMatcher:
         logger.info(f"Finding template match for query using {self.similarity_method} method")
         
         try:
-            # Use sentence transformer similarity
+            # Use method-specific threshold or fall back to general threshold
             if self.similarity_method == "sentence_transformer" and self.model is not None:
-                return self._sentence_transformer_matching(query, similarity_threshold)
-            
-            # Use TF-IDF similarity
+                method_threshold = self.similarity_thresholds.get('sentence_transformer', similarity_threshold)
+                return self._sentence_transformer_matching(query, method_threshold)
             elif self.similarity_method == "tfidf" and self.tfidf_vectorizer is not None:
-                return self._tfidf_matching(query, similarity_threshold)
-            
-            # Use keyword similarity (always available)
+                method_threshold = self.similarity_thresholds.get('tfidf', similarity_threshold)
+                return self._tfidf_matching(query, method_threshold)
             else:
-                return self._keyword_matching(query, similarity_threshold)
+                method_threshold = self.similarity_thresholds.get('keyword', similarity_threshold * 0.85)
+                return self._keyword_matching(query, method_threshold)
                 
         except Exception as e:
             logger.error(f"Error in template matching: {e}")
             # Final fallback to basic keyword matching
-            return self._keyword_matching(query, similarity_threshold)
+            method_threshold = self.similarity_thresholds.get('keyword', similarity_threshold * 0.85)
+            return self._keyword_matching(query, method_threshold)
     
     def _sentence_transformer_matching(self, query: str, similarity_threshold: float) -> Optional[Dict[str, Any]]:
         """Semantic similarity using sentence transformers."""
@@ -467,7 +523,7 @@ class TemplateMatcher:
                 np.linalg.norm(self.template_embeddings, axis=1) * np.linalg.norm(query_embedding)
             )
             
-            return self._process_similarities(similarities, similarity_threshold, "sentence transformer")
+            return self._process_similarities(similarities, similarity_threshold, "sentence transformer", query)
             
         except Exception as e:
             logger.error(f"Error in sentence transformer matching: {e}")
@@ -482,30 +538,54 @@ class TemplateMatcher:
             # Calculate cosine similarity
             similarities = cosine_similarity(query_vector, self.tfidf_matrix).flatten()
             
-            return self._process_similarities(similarities, similarity_threshold, "TF-IDF")
+            return self._process_similarities(similarities, similarity_threshold, "TF-IDF", query)
             
         except Exception as e:
             logger.error(f"Error in TF-IDF matching: {e}")
             return None
     
-    def _process_similarities(self, similarities: np.ndarray, similarity_threshold: float, method_name: str) -> Optional[Dict[str, Any]]:
-        """Process similarity scores and return best match."""
-        # Sort templates by similarity score (descending)
-        sorted_indices = np.argsort(similarities)[::-1]
+    def _process_similarities(self, similarities: np.ndarray, similarity_threshold: float, method_name: str, query: str = None) -> Optional[Dict[str, Any]]:
+        """Process similarity scores with intent consideration and quality scoring."""
+        # Get query intent if query is provided
+        query_intent = self.classify_query_intent(query) if query else 'general'
+        
+        # Calculate combined scores (similarity + intent boost + quality)
+        combined_scores = []
+        for idx, similarity in enumerate(similarities):
+            template = self.templates[idx]
+            
+            # Apply intent boost
+            intent_boost = 0
+            template_intent = template.get('metadata', {}).get('intent', 'general')
+            if query_intent == template_intent:
+                intent_boost = 0.15  # 15% boost for matching intent
+            
+            # Calculate quality factor
+            quality = self.calculate_template_quality(template)
+            
+            # Combine similarity, intent, and quality
+            # Higher quality templates get a boost, but similarity is still primary
+            combined_score = similarity * (1 + intent_boost) * (0.8 + 0.2 * quality)
+            combined_scores.append(combined_score)
+        
+        # Sort by combined score
+        sorted_indices = np.argsort(combined_scores)[::-1]
         
         # Log top matches for debugging
         top_n = min(3, len(sorted_indices))
-        top_templates = [(self.templates[idx]['template_query'], float(similarities[idx])) 
+        top_templates = [(self.templates[idx]['template_query'], float(similarities[idx]), float(combined_scores[idx])) 
                         for idx in sorted_indices[:top_n]]
-        logger.debug(f"Top {top_n} {method_name} matches: {top_templates}")
+        logger.debug(f"Top {top_n} {method_name} matches (template, sim_score, combined_score): {top_templates}")
         
         # Find the best match that meets the threshold
         for idx in sorted_indices:
-            score = similarities[idx]
-            if score >= similarity_threshold:
+            base_score = similarities[idx]
+            combined_score = combined_scores[idx]
+            if base_score >= similarity_threshold:
                 template = self.templates[idx].copy()
-                template['similarity_score'] = float(score)
-                logger.info(f"Found matching template with {method_name} score {score}: {template['template_query']}")
+                template['similarity_score'] = float(base_score)
+                template['combined_score'] = float(combined_score)
+                logger.info(f"Found matching template with {method_name} score {base_score:.3f} (combined: {combined_score:.3f}): {template['template_query']}")
                 return template
         
         # If we get here, no template met the threshold

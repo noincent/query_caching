@@ -15,7 +15,9 @@ from pathlib import Path
 
 from ..utils.entity_extractor import EntityExtractor
 from ..utils.template_matcher import TemplateMatcher
+from ..utils.sql_validator import SQLValidator
 from .template_library import TemplateLibrary
+from .template_learning import TemplateLearning
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -35,11 +37,16 @@ class QueryCache:
             use_predefined_templates: Whether to use predefined templates
             use_wtl_templates: Whether to use WTL-specific templates
         """
-        # Default configuration
+        # Default configuration with method-specific thresholds
         self.config = {
             'templates_path': 'data/templates.pkl',
             'entity_dictionary_path': 'data/entity_dictionary.json',
-            'similarity_threshold': 0.75,
+            'similarity_threshold': 0.65,  # Default fallback
+            'similarity_thresholds': {
+                'sentence_transformer': 0.75,
+                'tfidf': 0.65,
+                'keyword': 0.55
+            },
             'max_templates': 1000,
             'model_name': 'all-MiniLM-L6-v2',
             'use_predefined_templates': use_predefined_templates,
@@ -60,16 +67,20 @@ class QueryCache:
         
         # Initialize components
         self.entity_extractor = EntityExtractor(self.entity_dictionary)
+        self.sql_validator = SQLValidator()
+        self.template_learning = TemplateLearning(self)
         
         templates_path = self.config.get('templates_path')
         if templates_path and os.path.exists(templates_path):
             self.template_matcher = TemplateMatcher(
                 model_name=self.config.get('model_name'),
-                templates_path=templates_path
+                templates_path=templates_path,
+                similarity_thresholds=self.config.get('similarity_thresholds', {})
             )
         else:
             self.template_matcher = TemplateMatcher(
-                model_name=self.config.get('model_name')
+                model_name=self.config.get('model_name'),
+                similarity_thresholds=self.config.get('similarity_thresholds', {})
             )
             
         # Initialize template library with predefined templates if enabled
@@ -562,17 +573,18 @@ class QueryCache:
         
         return sql_query
     
-    def add_template(self, template_query: str, sql_query: str, entity_map: Dict[str, Dict[str, str]]) -> bool:
+    def add_template(self, template_query: str, sql_query: str, entity_map: Dict[str, Dict[str, str]], context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Add a new template to the cache.
+        Add a new template to the cache with SQL validation.
         
         Args:
             template_query: Template query with entity placeholders
             sql_query: SQL query with entity values
             entity_map: Dictionary mapping placeholders to entity information
+            context: Optional context information
             
         Returns:
-            True if template was added successfully, False otherwise
+            Dictionary containing success status and any issues
         """
         try:
             # Check if an identical template already exists
@@ -580,7 +592,7 @@ class QueryCache:
                 if template['template_query'] == template_query:
                     # Template already exists
                     logger.info(f"Template already exists: {template_query}")
-                    return True
+                    return {'success': True, 'message': 'Template already exists'}
                     
             # Create SQL template by replacing entity values with placeholders
             sql_template = sql_query
@@ -589,25 +601,63 @@ class QueryCache:
                 if normalized_value:
                     sql_template = sql_template.replace(normalized_value, placeholder)
             
+            # Validate SQL before adding
+            is_valid, issues = self.sql_validator.validate_sql_template(sql_template, entity_map)
+            
+            if not is_valid:
+                logger.warning(f"SQL validation failed for template: {issues}")
+                return {
+                    'success': False,
+                    'error': 'SQL validation failed',
+                    'issues': issues
+                }
+            
+            # Extract metadata from SQL
+            tables_used = self.sql_validator.extract_table_references(sql_template)
+            
+            # Create metadata
+            metadata = {
+                'source': 'external',
+                'timestamp': self._current_timestamp(),
+                'created_at': time.time(),
+                'last_used': time.time(),
+                'intent': self.template_matcher.classify_query_intent(template_query),
+                'tables_used': tables_used,
+                'context_updates': context or {}
+            }
+            
             # Add template to the matcher
             self.template_matcher.add_template(
                 template_query=template_query,
                 sql_template=sql_template,
                 entity_map=entity_map,
-                metadata={
-                    'source': 'external',
-                    'timestamp': self._current_timestamp()
-                }
+                metadata=metadata
             )
             
             # Save templates if we have a path configured
             if 'templates_path' in self.config:
                 self.save_state()
                 
-            return True
+            return {'success': True, 'message': 'Template added successfully'}
         except Exception as e:
             logger.error(f"Error adding template: {e}", exc_info=True)
-            return False
+            return {'success': False, 'error': str(e)}
+    
+    def record_template_feedback(self, template_id: int, success: bool, execution_time: float = None, error: str = None):
+        """Record feedback for template usage to improve learning."""
+        self.template_learning.record_feedback(template_id, success, execution_time, error)
+    
+    def get_learning_insights(self) -> Dict[str, Any]:
+        """Get insights about template learning and performance."""
+        return self.template_learning.get_learning_insights()
+    
+    def suggest_template_improvements(self, template_id: int) -> List[Dict[str, Any]]:
+        """Get suggestions for improving a specific template."""
+        return self.template_learning.suggest_template_improvements(template_id)
+    
+    def auto_tune_thresholds(self) -> Dict[str, float]:
+        """Get automatically tuned similarity thresholds based on performance."""
+        return self.template_learning.auto_tune_thresholds()
     
     def get_metrics(self) -> Dict[str, Any]:
         """Get current performance metrics."""
