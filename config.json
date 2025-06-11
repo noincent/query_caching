@@ -3,12 +3,14 @@
   "entity_dictionary_path": "data/entity_dictionary.json",
   "similarity_threshold": 0.65,
   "similarity_thresholds": {
-    "sentence_transformer": 0.75,
+    "sentence_transformer": 0.70,
     "tfidf": 0.65,
     "keyword": 0.55
   },
   "max_templates": 1000,
-  "model_name": "all-MiniLM-L6-v2",
+  "model_name": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "multilingual_enabled": true,
+  "alias_mapping_path": "data/alias_mappings.json",
   "chess_module_path": "../chess-plus/interface.py",
   "use_predefined_templates": true,
   "use_wtl_templates": true,

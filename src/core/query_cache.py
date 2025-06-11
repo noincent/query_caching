@@ -19,6 +19,15 @@ from ..utils.sql_validator import SQLValidator
 from .template_library import TemplateLibrary
 from .template_learning import TemplateLearning
 
+# Multilingual support imports
+try:
+    from ..utils.alias_mapper import AliasMapper
+    from ..utils.multilingual_entity_extractor import MultilingualEntityExtractor
+    MULTILINGUAL_AVAILABLE = True
+except ImportError:
+    MULTILINGUAL_AVAILABLE = False
+    logger.warning("Multilingual components not available")
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -62,11 +71,29 @@ class QueryCache:
         # Initialize entity dictionary
         self.entity_dictionary = {}
         if 'entity_dictionary_path' in self.config and os.path.exists(self.config['entity_dictionary_path']):
-            with open(self.config['entity_dictionary_path'], 'r') as f:
+            with open(self.config['entity_dictionary_path'], 'r', encoding='utf-8') as f:
                 self.entity_dictionary = json.load(f)
         
-        # Initialize components
-        self.entity_extractor = EntityExtractor(self.entity_dictionary)
+        # Initialize multilingual components if enabled
+        self.alias_mapper = None
+        if MULTILINGUAL_AVAILABLE and self.config.get('multilingual_enabled', False):
+            try:
+                # Initialize alias mapper
+                alias_path = self.config.get('alias_mapping_path', 'data/alias_mappings.json')
+                self.alias_mapper = AliasMapper(alias_path)
+                
+                # Use multilingual entity extractor
+                self.entity_extractor = MultilingualEntityExtractor(
+                    self.entity_dictionary, 
+                    self.alias_mapper
+                )
+                logger.info("Multilingual entity extraction enabled")
+            except Exception as e:
+                logger.warning(f"Failed to initialize multilingual components: {e}")
+                self.entity_extractor = EntityExtractor(self.entity_dictionary)
+        else:
+            # Use standard entity extractor
+            self.entity_extractor = EntityExtractor(self.entity_dictionary)
         self.sql_validator = SQLValidator()
         self.template_learning = TemplateLearning(self)
         
@@ -684,9 +711,94 @@ class QueryCache:
         
         if 'entity_dictionary_path' in self.config:
             os.makedirs(os.path.dirname(self.config['entity_dictionary_path']), exist_ok=True)
-            with open(self.config['entity_dictionary_path'], 'w') as f:
-                json.dump(self.entity_dictionary, f, indent=2)
+            with open(self.config['entity_dictionary_path'], 'w', encoding='utf-8') as f:
+                json.dump(self.entity_dictionary, f, indent=2, ensure_ascii=False)
             logger.info(f"Saved entity dictionary to {self.config['entity_dictionary_path']}")
+        
+        # Save alias mappings if multilingual is enabled
+        if self.alias_mapper and 'alias_mapping_path' in self.config:
+            self.alias_mapper.save_aliases(self.config['alias_mapping_path'])
+    
+    def add_alias(self, canonical: str, alias: str, entity_type: str) -> bool:
+        """
+        Add a new alias mapping for multilingual support.
+        
+        Args:
+            canonical: Canonical entity name
+            alias: Alias to map to the canonical name
+            entity_type: Type of the entity
+            
+        Returns:
+            True if added successfully, False otherwise
+        """
+        if not self.alias_mapper:
+            logger.warning("Alias mapper not available - multilingual support not enabled")
+            return False
+        
+        try:
+            self.alias_mapper.add_alias(canonical, alias, entity_type)
+            return True
+        except Exception as e:
+            logger.error(f"Error adding alias: {e}")
+            return False
+    
+    def get_alias_mappings(self) -> Dict[str, Dict[str, List[str]]]:
+        """
+        Get all alias mappings.
+        
+        Returns:
+            Dictionary of alias mappings by entity type
+        """
+        if not self.alias_mapper:
+            return {}
+        return self.alias_mapper.alias_mappings
+    
+    def normalize_entity(self, entity: str, entity_type: str) -> str:
+        """
+        Normalize an entity using the alias mapper.
+        
+        Args:
+            entity: Entity to normalize
+            entity_type: Type of the entity
+            
+        Returns:
+            Normalized entity name
+        """
+        if not self.alias_mapper:
+            return entity
+        return self.alias_mapper.normalize_entity(entity, entity_type)
+    
+    def get_entity_variations(self, canonical: str, entity_type: str) -> List[str]:
+        """
+        Get all variations of a canonical entity.
+        
+        Args:
+            canonical: Canonical entity name
+            entity_type: Type of the entity
+            
+        Returns:
+            List of all variations including the canonical form
+        """
+        if not self.alias_mapper:
+            return [canonical]
+        return self.alias_mapper.get_all_variations(canonical, entity_type)
+    
+    def get_multilingual_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about multilingual support.
+        
+        Returns:
+            Dictionary containing multilingual statistics
+        """
+        stats = {
+            'multilingual_enabled': bool(self.alias_mapper),
+            'extractor_type': type(self.entity_extractor).__name__,
+        }
+        
+        if self.alias_mapper:
+            stats.update(self.alias_mapper.get_stats())
+        
+        return stats
 
 
 # Example usage

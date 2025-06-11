@@ -38,6 +38,18 @@ else:
 # Initialize the query cache service
 query_cache = QueryCache(config_path=config_path if os.path.exists(config_path) else None)
 
+# Make cache service available to the app
+app.cache_service = query_cache
+app.config['cache_service'] = query_cache
+
+# Import and register alias management routes
+try:
+    from .alias_routes import alias_bp
+    app.register_blueprint(alias_bp)
+    logger.info("Alias management API routes registered")
+except ImportError as e:
+    logger.warning(f"Could not load alias routes: {e}")
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
